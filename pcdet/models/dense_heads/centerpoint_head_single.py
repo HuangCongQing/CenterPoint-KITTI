@@ -24,14 +24,14 @@ def multi_apply(func, *args, **kwargs):
     pfunc = partial(func, **kwargs) if kwargs else func
     map_results = map(pfunc, *args)
     return tuple(map(list, zip(*map_results)))
-
+# CenterHead
 class CenterHead(nn.Module):
     def __init__(self, model_cfg, input_channels, num_class, class_names, grid_size, point_cloud_range,
                  predict_boxes_when_training=True):
         super().__init__()
         self.model_cfg = model_cfg
-        self.num_class = num_class
-        self.class_names = [class_names]
+        self.num_class = num_class # 
+        self.class_names = [class_names] # ？？？？
         self.predict_boxes_when_training = predict_boxes_when_training
         self.use_multihead = self.model_cfg.get('USE_MULTIHEAD', False)
 
@@ -42,45 +42,46 @@ class CenterHead(nn.Module):
         self.point_cloud_range = point_cloud_range
 
         self.forward_ret_dict = {}
-
-        self.conv_cls = nn.Conv2d(
-            input_channels, self.num_class,
+        # 分类2D 卷积
+        self.conv_cls = nn.Conv2d(  # ？？？？
+            input_channels, self.num_class, # 输出num_class  四层headmap，找到置信度score最高的
             kernel_size=1
         )
+        # 回归2D 卷积
         self.conv_box = nn.Conv2d(
             input_channels, 8,
             kernel_size=1
         )
 
-        self.loss_cls = GaussianFocalLoss(reduction='mean')
+        self.loss_cls = GaussianFocalLoss(reduction='mean') # 得到 GaussianFocalLoss=========
 
         self.init_weights()
-
+    # 初始权重
     def init_weights(self):
         pi = 0.01
         nn.init.constant_(self.conv_cls.bias, -np.log((1 - pi) / pi))
         nn.init.normal_(self.conv_box.weight, mean=0, std=0.001)
-
+    # main 入口============================================================
     def forward(self, data_dict):
         spatial_features_2d = data_dict['spatial_features_2d']
 
-        cls_preds = self.conv_cls(spatial_features_2d)
+        cls_preds = self.conv_cls(spatial_features_2d) # 二维卷积得到分类和回归预测=======
         box_preds = self.conv_box(spatial_features_2d)
-
-        cls_preds = cls_preds.permute(0, 2, 3, 1).contiguous()  # [N, H, W, C]
+        # cls_preds， box_preds下面是生成预测框的输入
+        cls_preds = cls_preds.permute(0, 2, 3, 1).contiguous()  # [N, H, W, C] # 将tensor的维度换位。比如图片img的size比如是（28，28，3）就可以利用img.permute(2,0,1)得到一个size为（3，28，28）的tensor。
         box_preds = box_preds.permute(0, 2, 3, 1).contiguous()  # [N, H, W, C]
 
         self.forward_ret_dict['cls_preds'] = cls_preds
         self.forward_ret_dict['box_preds'] = box_preds
 
         if self.training:
-            targets_dict = self.assign_targets(
+            targets_dict = self.assign_targets( # 得到四块
                 gt_boxes=data_dict['gt_boxes']
             )
             self.forward_ret_dict.update(targets_dict)
 
         if not self.training or self.predict_boxes_when_training:
-            batch_cls_preds, batch_box_preds = self.generate_predicted_boxes(
+            batch_cls_preds, batch_box_preds = self.generate_predicted_boxes( # 生成预测框 generate_predicted_boxes======================
                 batch_size=data_dict['batch_size'],
                 cls_preds=cls_preds, box_preds=box_preds, dir_cls_preds=None
             )
@@ -136,7 +137,7 @@ class CenterHead(nn.Module):
         gt_bboxes_3d, gt_labels_3d = gt_boxes[..., :-1], gt_boxes[..., -1]
 
         heatmaps, anno_boxes, inds, masks = multi_apply(
-            self.get_targets_single, gt_bboxes_3d, gt_labels_3d)
+            self.get_targets_single, gt_bboxes_3d, gt_labels_3d) # get_targets_single
         # transpose heatmaps, because the dimension of tensors in each task is
         # different, we have to use numpy instead of torch to do the transpose.
         heatmaps = np.array(heatmaps).transpose(1, 0).tolist()
@@ -159,7 +160,7 @@ class CenterHead(nn.Module):
         }
         
         return all_targets_dict
-
+    # ：输出①表征目标中心位置的热力图；②目标尺寸；③目标朝向；④目标速度 (速度用于做目标跟踪，该思路来源于另一篇文章CenterTrack[2]) 
     def get_targets_single(self, gt_bboxes_3d, gt_labels_3d):
         """Generate training targets for a single sample.
 
@@ -184,7 +185,7 @@ class CenterHead(nn.Module):
             dim=1).to(device)
         """
 
-        max_objs = self.target_cfg.MAX_OBJS
+        max_objs = self.target_cfg.MAX_OBJS # 
         grid_size = torch.tensor(self.grid_size)
         pc_range = torch.tensor(self.point_cloud_range)
         voxel_size = torch.tensor(self.target_cfg.VOXEL_SIZE)
@@ -218,14 +219,15 @@ class CenterHead(nn.Module):
             flag2 += len(mask)
         """
 
-        task_boxes = [gt_bboxes_3d]
+        task_boxes = [gt_bboxes_3d] # 
         task_classes = [gt_labels_3d]
 
-        draw_gaussian = draw_heatmap_gaussian
+        draw_gaussian = draw_heatmap_gaussian # ？？？？？？？？//
         heatmaps, anno_boxes, inds, masks = [], [], [], []
 
-        for idx in range(1):
-            heatmap = gt_bboxes_3d.new_zeros(
+        for idx in range(1):  # ？？？？？？
+            # 初始化
+            heatmap = gt_bboxes_3d.new_zeros( # new_zeros复制原来tensor的所有类型
                 (len(self.class_names[idx]), feature_map_size[1],
                  feature_map_size[0]))
 
@@ -233,29 +235,30 @@ class CenterHead(nn.Module):
                                               dtype=torch.float32)
 
             ind = gt_labels_3d.new_zeros((max_objs), dtype=torch.int64)
-            mask = gt_bboxes_3d.new_zeros((max_objs), dtype=torch.uint8)
+            mask = gt_bboxes_3d.new_zeros((max_objs), dtype=torch.uint8) # 生成mask
 
-            num_objs = min(task_boxes[idx].shape[0], max_objs)
+            num_objs = min(task_boxes[idx].shape[0], max_objs) #   task_boxes = [gt_bboxes_3d]  最小的 
 
-            for k in range(num_objs):
-                cls_id = (task_classes[idx][k] - 1).int()
+            for k in range(num_objs): # 遍历GT 框数量
+                cls_id = (task_classes[idx][k] - 1).int() # gt_labels_3d
 
-                width = task_boxes[idx][k][3]
+                width = task_boxes[idx][k][3] # 
                 length = task_boxes[idx][k][4]
                 width = width / voxel_size[0] / self.target_cfg.OUT_SIZE_FACTOR
                 length = length / voxel_size[1] / self.target_cfg.OUT_SIZE_FACTOR
 
                 if width > 0 and length > 0:
-                    radius = gaussian_radius(
+                    radius = gaussian_radius( # 高斯半径 https://zhuanlan.zhihu.com/p/96856635
                         (length, width),
                         min_overlap=self.target_cfg.GAUSSIAN_OVERLAP)
-                    radius = max(self.target_cfg.MIN_RADIUS, int(radius))
+                    radius = max(self.target_cfg.MIN_RADIUS, int(radius)) # 半径
 
                     # be really careful for the coordinate system of
-                    # your box annotation.
+                    # your box annotation. 你的框注释的坐标系要非常小心。
                     x, y, z = task_boxes[idx][k][0], task_boxes[idx][k][
                         1], task_boxes[idx][k][2]
 
+                    # x,y 投影
                     coor_x = (
                         x - pc_range[0]
                     ) / voxel_size[0] / self.target_cfg.OUT_SIZE_FACTOR
@@ -263,43 +266,44 @@ class CenterHead(nn.Module):
                         y - pc_range[1]
                     ) / voxel_size[1] / self.target_cfg.OUT_SIZE_FACTOR
 
+                    # 投影后俯视图中心点(x,y)
                     center = torch.tensor([coor_x, coor_y],
                                           dtype=torch.float32,
                                           device=device)
-                    center_int = center.to(torch.int32)
+                    center_int = center.to(torch.int32) # 转int 图像像素中心点
 
                     # throw out not in range objects to avoid out of array
-                    # area when creating the heatmap
+                    # area when creating the heatmap 创建热图时抛出不在范围内的对象以避免超出数组#区域
                     if not (0 <= center_int[0] < feature_map_size[0]
                             and 0 <= center_int[1] < feature_map_size[1]):
                         continue
+                    # 画图
+                    draw_gaussian(heatmap[cls_id], center_int, radius) # radius
 
-                    draw_gaussian(heatmap[cls_id], center_int, radius)
-
-                    new_idx = k
+                    new_idx = k # 第几个GT
                     x, y = center_int[0], center_int[1]
 
-                    assert (y * feature_map_size[0] + x <
+                    assert (y * feature_map_size[0] + x <   # 
                             feature_map_size[0] * feature_map_size[1])
 
-                    ind[new_idx] = y * feature_map_size[0] + x
+                    ind[new_idx] = y * feature_map_size[0] + x # 第几个网格，GT的中心点的下标
                     mask[new_idx] = 1
                     rot = task_boxes[idx][k][6]
-                    box_dim = task_boxes[idx][k][3:6]
-                    box_dim = box_dim.log()
+                    box_dim = task_boxes[idx][k][3:6] # 长宽高
+                    box_dim = box_dim.log() # 加log！！！！！！！！！！！1
                     anno_box[new_idx] = torch.cat([
-                        center - torch.tensor([x, y], device=device),
-                        z.unsqueeze(0), box_dim,
+                        center - torch.tensor([x, y], device=device), #  center - torch.tensor([x, y]？？？sub_voxel offset
+                        z.unsqueeze(0), box_dim, # 看torch.unsqueeze()这个函数主要是对数据维度进行扩充。给指定位置加上维数为一的维度
                         torch.sin(rot).unsqueeze(0),
                         torch.cos(rot).unsqueeze(0),
                     ])
-
+            # append！！！！！
             heatmaps.append(heatmap)
-            anno_boxes.append(anno_box)
-            masks.append(mask)
-            inds.append(ind)
+            anno_boxes.append(anno_box)  # 
+            masks.append(mask) # 
+            inds.append(ind)  # 第几个网格，GT的中心点的下标
         return heatmaps, anno_boxes, inds, masks
-
+    # 生成预测框===================
     def generate_predicted_boxes(self, batch_size, cls_preds, box_preds, dir_cls_preds=None):
         """
         Args:
@@ -340,25 +344,25 @@ class CenterHead(nn.Module):
 
         batch_cls_preds = cls_preds.view(batch, H*W, -1)
         return batch_cls_preds, batch_box_preds
-
+    # 得到rpn loss（cls_loss + box_loss）===========
     def get_loss(self):
-        cls_loss, tb_dict = self.get_cls_layer_loss()
-        box_loss, tb_dict_box = self.get_box_reg_layer_loss()
+        cls_loss, tb_dict = self.get_cls_layer_loss() # 分类loss   GaussianFocalLoss
+        box_loss, tb_dict_box = self.get_box_reg_layer_loss() # 回归loss
         tb_dict.update(tb_dict_box)
         rpn_loss = cls_loss + box_loss
 
         tb_dict['rpn_loss'] = rpn_loss.item()
         return rpn_loss, tb_dict
-
+    # 得到cls_loss GaussianFocalLoss
     def get_cls_layer_loss(self):
         # NHWC -> NCHW 
-        pred_heatmaps = clip_sigmoid(self.forward_ret_dict['cls_preds']).permute(0, 3, 1, 2) 
+        pred_heatmaps = clip_sigmoid(self.forward_ret_dict['cls_preds']).permute(0, 3, 1, 2)  # 
         gt_heatmaps =  self.forward_ret_dict['heatmaps'][0]
-        num_pos = gt_heatmaps.eq(1).float().sum().item()
+        num_pos = gt_heatmaps.eq(1).float().sum().item() # 
 
-        cls_loss = self.loss_cls(
-                pred_heatmaps,
-                gt_heatmaps,
+        cls_loss = self.loss_cls( # loss_cls = GaussianFocalLoss(reduction='mean')
+                pred_heatmaps,  # 预测的heatmap
+                gt_heatmaps, # GT heatmap
                 avg_factor=max(num_pos, 1))
 
         cls_loss = cls_loss * self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['cls_weight']
@@ -367,18 +371,18 @@ class CenterHead(nn.Module):
         }
         return cls_loss, tb_dict
 
-
+    # 得到回归 box_loss
     def get_box_reg_layer_loss(self):
         # Regression loss for dimension, offset, height, rotation
-        target_box, inds, masks = self.forward_ret_dict['anno_boxes'][0], self.forward_ret_dict['inds'][0], self.forward_ret_dict['masks'][0]
+        target_box, inds, masks = self.forward_ret_dict['anno_boxes'][0], self.forward_ret_dict['inds'][0], self.forward_ret_dict['masks'][0] # 回归卷积
 
         ind = inds
         num = masks.float().sum()
         pred = self.forward_ret_dict['box_preds'] # N x (HxW) x 7 
         pred = pred.view(pred.size(0), -1, pred.size(3))
-        pred = self._gather_feat(pred, ind)
-        mask = masks.unsqueeze(2).expand_as(target_box).float()
-        isnotnan = (~torch.isnan(target_box)).float()
+        pred = self._gather_feat(pred, ind) # 根据GT 取出预测的feature
+        mask = masks.unsqueeze(2).expand_as(target_box).float() # 
+        isnotnan = (~torch.isnan(target_box)).float() #去除无效的GT 
         mask *= isnotnan
 
         code_weights = self.model_cfg.LOSS_CONFIG.LOSS_WEIGHTS['code_weights']
@@ -396,7 +400,8 @@ class CenterHead(nn.Module):
         return box_loss, tb_dict
 
 """
-The following is some util files, we will move it to separate files later
+The following is some util files, we will move it to separate files later  
+以下是一些util文件，稍后我们将其移动到单独的文件中
 """
 
 import numpy as np
@@ -434,21 +439,21 @@ def gaussian_2d(shape, sigma=1):
     h[h < np.finfo(h.dtype).eps * h.max()] = 0
     return h
 
-
+# 
 def draw_heatmap_gaussian(heatmap, center, radius, k=1):
     """Get gaussian masked heatmap.
 
     Args:
-        heatmap (torch.Tensor): Heatmap to be masked.
+        heatmap (torch.Tensor): Heatmap to be masked. 热力图
         center (torch.Tensor): Center coord of the heatmap.
-        radius (int): Radius of gausian.
+        radius (int): Radius of gausian. ?????????
         K (int): Multiple of masked_gaussian. Defaults to 1.
 
     Returns:
-        torch.Tensor: Masked heatmap.
+        torch.Tensor: Masked heatmap.  # 
     """
-    diameter = 2 * radius + 1
-    gaussian = gaussian_2d((diameter, diameter), sigma=diameter / 6)
+    diameter = 2 * radius + 1 #得到直径
+    gaussian = gaussian_2d((diameter, diameter), sigma=diameter / 6) # 高斯  
 
     x, y = int(center[0]), int(center[1])
 
@@ -466,12 +471,12 @@ def draw_heatmap_gaussian(heatmap, center, radius, k=1):
         torch.max(masked_heatmap, masked_gaussian * k, out=masked_heatmap)
     return heatmap
 
-
+# 高斯半径
 def gaussian_radius(det_size, min_overlap=0.5):
     """Get radius of gaussian.
 
     Args:
-        det_size (tuple[torch.Tensor]): Size of the detection result.
+        det_size (tuple[torch.Tensor]): Size of the detection result. 长宽没有高
         min_overlap (float): Gaussian_overlap. Defaults to 0.5.
 
     Returns:
@@ -483,24 +488,24 @@ def gaussian_radius(det_size, min_overlap=0.5):
     b1 = (height + width)
     c1 = width * height * (1 - min_overlap) / (1 + min_overlap)
     sq1 = torch.sqrt(b1**2 - 4 * a1 * c1)
-    r1 = (b1 + sq1) / 2
+    r1 = (b1 + sq1) / 2 # 
 
     a2 = 4
     b2 = 2 * (height + width)
     c2 = (1 - min_overlap) * width * height
     sq2 = torch.sqrt(b2**2 - 4 * a2 * c2)
-    r2 = (b2 + sq2) / 2
+    r2 = (b2 + sq2) / 2 # 
 
     a3 = 4 * min_overlap
     b3 = -2 * min_overlap * (height + width)
     c3 = (min_overlap - 1) * width * height
     sq3 = torch.sqrt(b3**2 - 4 * a3 * c3)
-    r3 = (b3 + sq3) / 2
-    return min(r1, r2, r3)
+    r3 = (b3 + sq3) / 2 # 
+    return min(r1, r2, r3) # 
 
 
 """
-Gaussian Loss 
+Gaussian Loss 高斯loss
 """
 class GaussianFocalLoss(nn.Module):
     """GaussianFocalLoss is a variant of focal loss.
@@ -509,7 +514,7 @@ class GaussianFocalLoss(nn.Module):
     <https://arxiv.org/abs/1808.01244>`_
     Code is modified from `kp_utils.py
     <https://github.com/princeton-vl/CornerNet/blob/master/models/py_utils/kp_utils.py#L152>`_  # noqa: E501
-    Please notice that the target in GaussianFocalLoss is a gaussian heatmap,
+    Please notice that the target in GaussianFocalLoss is a gaussian heatmap, 请注意 GaussianFocalLoss 中的目标是一个高斯热图，
     not 0/1 binary target.
 
     Args:
@@ -524,12 +529,12 @@ class GaussianFocalLoss(nn.Module):
                  gamma=4.0,
                  reduction='mean',
                  loss_weight=1.0):
-        super(GaussianFocalLoss, self).__init__()
+        super(GaussianFocalLoss, self).__init__() # 高斯热力图
         self.alpha = alpha
         self.gamma = gamma
         self.reduction = reduction
         self.loss_weight = loss_weight
-
+    # ==========================================
     def forward(self,
                 pred,
                 target,
@@ -553,7 +558,7 @@ class GaussianFocalLoss(nn.Module):
         assert reduction_override in (None, 'none', 'mean', 'sum')
         reduction = (
             reduction_override if reduction_override else self.reduction)
-        loss_reg = self.loss_weight * gaussian_focal_loss(
+        loss_reg = self.loss_weight * gaussian_focal_loss( #  高斯focal loss================================
             pred,
             target,
             weight,
@@ -561,7 +566,7 @@ class GaussianFocalLoss(nn.Module):
             gamma=self.gamma,
             reduction=reduction,
             avg_factor=avg_factor)
-        return loss_reg
+        return loss_reg # 返回回归loss
 
 import functools
 
@@ -664,25 +669,25 @@ def weighted_loss(loss_func):
 
 
 @weighted_loss
-def gaussian_focal_loss(pred, gaussian_target, alpha=2.0, gamma=4.0):
+def gaussian_focal_loss(pred, gaussian_target, alpha=2.0, gamma=4.0): # 高斯focal loss  分类loss
     """`Focal Loss <https://arxiv.org/abs/1708.02002>`_ for targets in gaussian
     distribution.
 
     Args:
-        pred (torch.Tensor): The prediction.
+        pred (torch.Tensor): The prediction.  预测===
         gaussian_target (torch.Tensor): The learning target of the prediction
-            in gaussian distribution.
+            in gaussian distribution.  GT=====
         alpha (float, optional): A balanced form for Focal Loss.
             Defaults to 2.0.
         gamma (float, optional): The gamma for calculating the modulating
             factor. Defaults to 4.0.
     """
     eps = 1e-12
-    pos_weights = gaussian_target.eq(1)
-    neg_weights = (1 - gaussian_target).pow(gamma)
+    pos_weights = gaussian_target.eq(1) # 正样本
+    neg_weights = (1 - gaussian_target).pow(gamma) # 
     pos_loss = -(pred + eps).log() * (1 - pred).pow(alpha) * pos_weights
     neg_loss = -(1 - pred + eps).log() * pred.pow(alpha) * neg_weights
-    return pos_loss + neg_loss
+    return pos_loss + neg_loss  # 
 
 @weighted_loss
 def l1_loss(pred, target):
