@@ -65,7 +65,7 @@ MODEL:
             MIN_RADIUS: 2
             BOX_CODER: ResidualCoder
 
-        LOSS_CONFIG:
+        LOSS_CONFIG: # loss权重
             LOSS_WEIGHTS: {
                 'cls_weight': 1.0,
                 'loc_weight': 2.0,

@@ -353,7 +353,7 @@ class CenterHead(nn.Module):
 
         tb_dict['rpn_loss'] = rpn_loss.item()
         return rpn_loss, tb_dict
-    # 得到cls_loss GaussianFocalLoss
+    # 得到分类 loss  cls_loss GaussianFocalLoss
     def get_cls_layer_loss(self):
         # NHWC -> NCHW 
         pred_heatmaps = clip_sigmoid(self.forward_ret_dict['cls_preds']).permute(0, 3, 1, 2)  # 
@@ -376,11 +376,11 @@ class CenterHead(nn.Module):
         # Regression loss for dimension, offset, height, rotation
         target_box, inds, masks = self.forward_ret_dict['anno_boxes'][0], self.forward_ret_dict['inds'][0], self.forward_ret_dict['masks'][0] # 回归卷积
 
-        ind = inds
+        ind = inds #？？？？？？ 中心点下标
         num = masks.float().sum()
         pred = self.forward_ret_dict['box_preds'] # N x (HxW) x 7 
         pred = pred.view(pred.size(0), -1, pred.size(3))
-        pred = self._gather_feat(pred, ind) # 根据GT 取出预测的feature
+        pred = self._gather_feat(pred, ind) # 根据GT 取出预测的feature   Given feature map and index, return indexed feature map.
         mask = masks.unsqueeze(2).expand_as(target_box).float() # 
         isnotnan = (~torch.isnan(target_box)).float() #去除无效的GT 
         mask *= isnotnan
