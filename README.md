@@ -2,6 +2,8 @@
 
 3D Object Detection and Tracking using center points in the bird-eye view.
 
+个人笔记：https://www.yuque.com/huangzhongqing/hre6tf/eednh4
+
 <p align="center"> <img src='docs/teaser.png' align="center" height="230px"> </p>
 
 > [**Center-based 3D Object Detection and Tracking**](https://arxiv.org/abs/2006.11275),            
